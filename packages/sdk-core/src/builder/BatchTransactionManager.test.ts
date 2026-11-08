@@ -1,18 +1,22 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { PolkadotApi } from '../api/PolkadotApi'
-import type { TBatchedTransferOptions, TTransferBaseOptions } from '../types'
+import { DryRunFailedError } from '../errors'
+import type { TBatchedTransferOptions, TDryRunResult, TTransferBaseOptions } from '../types'
 import { BatchMode } from '../types'
-import { createTransferOrSwap } from '../utils'
+import { assertSender, createTransferOrSwap, isConfig } from '../utils'
 import BatchTransactionManager from './BatchTransactionManager'
+import { buildDryRun } from './buildDryRun'
 import type { GeneralBuilder } from './Builder'
 
 vi.mock('../utils')
+vi.mock('./buildDryRun')
 
 const mockApi = {
   init: vi.fn(),
   getApi: vi.fn(),
-  callBatchMethod: vi.fn()
+  callBatchMethod: vi.fn(),
+  config: {}
 } as unknown as PolkadotApi<unknown, unknown, unknown>
 
 const createBuilder = () =>
@@ -112,6 +116,57 @@ describe('BatchTransactionManager', () => {
       await expect(
         manager.buildBatch(mockApi, 'Acala', { mode: BatchMode.BATCH_ALL })
       ).rejects.toThrow('All transactions must have the same origin.')
+    })
+
+    it('runs xcmFormatCheck dry run on each batched transaction when enabled', async () => {
+      const manager = new BatchTransactionManager()
+      const tx1 = { hash: 'hash1' }
+      const tx2 = { hash: 'hash2' }
+      manager.addTransaction(createTransferOptions({ sender: 'sender-1' }))
+      manager.addTransaction(createTransferOptions({ sender: 'sender-2', to: 'Moonbeam' }))
+      vi.mocked(createTransferOrSwap).mockResolvedValueOnce(tx1).mockResolvedValueOnce(tx2)
+      vi.mocked(isConfig).mockReturnValue(true)
+      vi.spyOn(mockApi, 'config', 'get').mockReturnValue({ xcmFormatCheck: true })
+      vi.mocked(buildDryRun).mockResolvedValue({} as TDryRunResult)
+
+      await manager.buildBatch(mockApi, 'Acala', { mode: BatchMode.BATCH_ALL })
+
+      expect(assertSender).toHaveBeenCalledWith('sender-1')
+      expect(assertSender).toHaveBeenCalledWith('sender-2')
+      expect(buildDryRun).toHaveBeenCalledTimes(2)
+      expect(buildDryRun).toHaveBeenNthCalledWith(
+        1,
+        mockApi,
+        tx1,
+        expect.objectContaining({ from: 'Acala', to: 'Hydration', sender: 'sender-1' }),
+        { sentAssetMintMode: 'bypass' }
+      )
+      expect(buildDryRun).toHaveBeenNthCalledWith(
+        2,
+        mockApi,
+        tx2,
+        expect.objectContaining({ from: 'Acala', to: 'Moonbeam', sender: 'sender-2' }),
+        { sentAssetMintMode: 'bypass' }
+      )
+    })
+
+    it('throws DryRunFailedError when xcmFormatCheck fails for a batched transaction', async () => {
+      const manager = new BatchTransactionManager()
+      manager.addTransaction(createTransferOptions({ sender: 'sender-1' }))
+      vi.mocked(createTransferOrSwap).mockResolvedValue({ hash: 'hash1' })
+      vi.mocked(isConfig).mockReturnValue(true)
+      vi.spyOn(mockApi, 'config', 'get').mockReturnValue({ xcmFormatCheck: true })
+      vi.mocked(buildDryRun).mockResolvedValue({
+        dryRunError: { reason: 'Barrier', chain: 'Hydration' }
+      } as TDryRunResult)
+
+      const batchPromise = manager.buildBatch(mockApi, 'Acala', { mode: BatchMode.BATCH_ALL })
+
+      await expect(batchPromise).rejects.toBeInstanceOf(DryRunFailedError)
+      await expect(batchPromise).rejects.toMatchObject({
+        dryRunError: { reason: 'Barrier' },
+        message: 'XCM format check failed. Dry run on Hydration failed: Barrier'
+      })
     })
   })
 })
