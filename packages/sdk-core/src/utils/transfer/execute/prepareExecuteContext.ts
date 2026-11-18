@@ -53,6 +53,9 @@ export const prepareExecuteContext = <TApi, TRes, TSigner, TCustomChain extends 
   const resolvedFeeAssetInfo = getFeeAssetInfo(assetInfo, feeAssetInfo)
   const feeAssetTotal = originFee + reserveFee + destFee
 
+  const feeReserveChain =
+    resolvedFeeAssetInfo && api.getAssetReserveChain(chain, resolvedFeeAssetInfo.location)
+
   const feeAsset =
     resolvedFeeAssetInfo && createAsset(version, feeAssetTotal, resolvedFeeAssetInfo.location)
 
@@ -69,11 +72,8 @@ export const prepareExecuteContext = <TApi, TRes, TSigner, TCustomChain extends 
     createAsset(
       version,
       reserveFee,
-      api.localizeLocation(reserveChain ?? chain, resolvedFeeAssetInfo.location)
+      api.localizeLocation(feeReserveChain ?? reserveChain ?? chain, resolvedFeeAssetInfo.location)
     )
-
-  const feeReserveChain =
-    resolvedFeeAssetInfo && api.getAssetReserveChain(chain, resolvedFeeAssetInfo.location)
 
   return {
     amount,

@@ -99,6 +99,7 @@ describe('prepareExecuteContext', () => {
     expect(localizeLocationSpy).toHaveBeenCalledTimes(4) // 2 base + 2 fee assets
     expect(localizeLocation).toHaveBeenCalledTimes(2) // 1 base + 1 fee asset
     expect(getAssetReserveChainSpy).toHaveBeenCalledWith(chain, mockFeeLocation)
+    expect(localizeLocationSpy).toHaveBeenCalledWith('Hydration', mockFeeLocation)
 
     // withdrawn fee asset covers all legs, hops get their own leg amounts
     expect(createAsset).toHaveBeenCalledWith(Version.V3, 150000000n, mockFeeLocation)
