@@ -92,8 +92,15 @@ export const resolveTransferParams = <TApi, TRes, TSigner, TCustomChain extends 
       }
     : finalAsset
 
+  const normalizedFeeAsset = resolvedFeeAsset?.location
+    ? {
+        ...resolvedFeeAsset,
+        location: normalizeLocation(resolvedFeeAsset.location, resolvedVersion)
+      }
+    : resolvedFeeAsset
+
   return {
-    resolvedFeeAsset,
+    resolvedFeeAsset: normalizedFeeAsset,
     resolvedVersion,
     overriddenAsset,
     normalizedAsset

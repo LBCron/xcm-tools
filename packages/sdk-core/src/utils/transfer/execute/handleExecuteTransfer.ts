@@ -70,15 +70,18 @@ export const handleExecuteTransfer = async <
   const destApi = api.clone()
   await destApi.init(destChain)
 
-  const edDeposit = await resolveEdDeposit({
-    origin: { api, chain },
-    dest: { api: destApi, chain: destChain },
-    assetInfo,
-    feeAssetLocation: (resolvedFeeAssetInfo ?? assetInfo).location,
-    recipient
-  })
-
-  await destApi.disconnect()
+  let edDeposit: bigint | undefined
+  try {
+    edDeposit = await resolveEdDeposit({
+      origin: { api, chain },
+      dest: { api: destApi, chain: destChain },
+      assetInfo,
+      feeAssetLocation: (resolvedFeeAssetInfo ?? assetInfo).location,
+      recipient
+    })
+  } finally {
+    await destApi.disconnect()
+  }
 
   const internalOptions = {
     api,
@@ -145,7 +148,9 @@ export const handleExecuteTransfer = async <
     padValueBy(getFeeFromResult(dryRunResult.destination), FEE_PADDING_PERCENTAGE) +
     (edDeposit ?? 0n)
 
-  if (!resolvedFeeAssetInfo) checkAmount(reserveFee)
+  if (!resolvedFeeAssetInfo) {
+    checkAmount(feeAssetInfo ? originFee + reserveFee : reserveFee)
+  }
 
   const xcm = await createDirectExecuteXcm({
     ...internalOptions,

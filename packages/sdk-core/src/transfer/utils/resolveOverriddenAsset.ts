@@ -1,7 +1,12 @@
-import { InvalidCurrencyError, type TAssetInfo, type TAssetWithFee } from '@paraspell/assets'
+import {
+  InvalidCurrencyError,
+  normalizeLocation,
+  type TAssetInfo,
+  type TAssetWithFee
+} from '@paraspell/assets'
 
 import type { TSubstrateTransferOptions } from '../../types'
-import { createAsset, getChainVersion, sortAssets } from '../../utils'
+import { createAsset, pickCompatibleXcmVersion, sortAssets } from '../../utils'
 import { resolveCurrency } from './resolveCurrency'
 import { validateAssetSupport } from './validateAssetSupport'
 
@@ -11,7 +16,7 @@ export const resolveOverriddenAsset = <TApi, TRes, TSigner, TCustomChain extends
   assetCheckEnabled: boolean,
   resolvedFeeAsset: TAssetInfo | undefined
 ): TAssetWithFee[] | undefined => {
-  const { api, currency, feeAsset, from: origin, to: destination } = options
+  const { api, currency, feeAsset, from: origin, to: destination, version: customVersion } = options
 
   if (Array.isArray(currency)) {
     if (!feeAsset) {
@@ -20,7 +25,7 @@ export const resolveOverriddenAsset = <TApi, TRes, TSigner, TCustomChain extends
       )
     }
 
-    const version = getChainVersion(api, origin)
+    const version = pickCompatibleXcmVersion(api, origin, destination, customVersion)
 
     const { assets } = resolveCurrency(
       api,
@@ -34,7 +39,7 @@ export const resolveOverriddenAsset = <TApi, TRes, TSigner, TCustomChain extends
     return sortAssets(
       assets.map(asset => ({
         isFeeAsset: asset.isFeeAsset,
-        ...createAsset(version, asset.amount, asset.location)
+        ...createAsset(version, asset.amount, normalizeLocation(asset.location, version))
       }))
     )
   }

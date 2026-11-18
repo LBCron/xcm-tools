@@ -1,21 +1,25 @@
 import type { TAsset, TAssetInfo } from '@paraspell/assets'
-import { isAssetEqual } from '@paraspell/assets'
+import { isAssetEqual, normalizeLocation } from '@paraspell/assets'
 import type { TLocation } from '@paraspell/sdk-common'
-import { isTLocation } from '@paraspell/sdk-common'
+import { isTLocation, Version } from '@paraspell/sdk-common'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { PolkadotApi } from '../../api'
 import type { TSubstrateTransferOptions } from '../../types'
-import { abstractDecimals, createAsset, sortAssets } from '../../utils'
+import { abstractDecimals, createAsset, pickCompatibleXcmVersion, sortAssets } from '../../utils'
 import { resolveOverriddenAsset } from './resolveOverriddenAsset'
 import { validateAssetSupport } from './validateAssetSupport'
 
 vi.mock('../../utils')
 vi.mock('./validateAssetSupport')
 
-vi.mock('@paraspell/sdk-common')
+vi.mock('@paraspell/sdk-common', async importActual => ({
+  ...(await importActual()),
+  isTLocation: vi.fn()
+}))
 vi.mock('@paraspell/assets', () => ({
   isAssetEqual: vi.fn(),
+  normalizeLocation: vi.fn((location: TLocation) => location),
   extractAssetLocation: vi.fn().mockResolvedValue({}),
   InvalidCurrencyError: class extends Error {}
 }))
@@ -44,6 +48,8 @@ describe('resolveOverriddenAsset', () => {
     } as TAssetInfo)
     vi.mocked(abstractDecimals).mockImplementation(amount => BigInt(amount))
     vi.mocked(sortAssets).mockImplementation(assets => assets)
+    vi.mocked(pickCompatibleXcmVersion).mockReturnValue(Version.V4)
+    vi.mocked(normalizeLocation).mockImplementation(location => location)
   })
 
   it('resolves currencies by fetching assets when not all items are TAsset', () => {
@@ -96,5 +102,39 @@ describe('resolveOverriddenAsset', () => {
 
     const result = resolveOverriddenAsset(options, false, false, {} as TAssetInfo)
     expect(result).toBeUndefined()
+  })
+
+  it('uses pickCompatibleXcmVersion and normalizes asset locations for target XCM version', () => {
+    const rawLocation: TLocation = { parents: 1, interior: { X1: [{ Parachain: 1000 }] } }
+    const normalizedV3Location: TLocation = { parents: 1, interior: { X1: { Parachain: 1000 } } }
+    vi.spyOn(mockApi, 'findAssetInfo').mockReturnValue({
+      symbol: 'USDT',
+      decimals: 6,
+      location: rawLocation
+    } as TAssetInfo)
+    vi.mocked(isAssetEqual).mockReturnValue(true)
+    vi.mocked(pickCompatibleXcmVersion).mockReturnValue(Version.V3)
+    vi.mocked(normalizeLocation).mockReturnValue(normalizedV3Location)
+
+    const options = {
+      ...defaultOptions,
+      currency: [{ symbol: 'USDT', amount: 1000n }],
+      feeAsset: { symbol: 'USDT' },
+      version: Version.V3
+    } as TSubstrateTransferOptions<unknown, unknown, unknown>
+
+    resolveOverriddenAsset(options, false, true, {
+      symbol: 'USDT',
+      location: rawLocation
+    } as TAssetInfo)
+
+    expect(pickCompatibleXcmVersion).toHaveBeenCalledWith(
+      mockApi,
+      mockOrigin,
+      mockDestination,
+      Version.V3
+    )
+    expect(normalizeLocation).toHaveBeenCalledWith(rawLocation, Version.V3)
+    expect(createAsset).toHaveBeenCalledWith(Version.V3, 1000n, normalizedV3Location)
   })
 })

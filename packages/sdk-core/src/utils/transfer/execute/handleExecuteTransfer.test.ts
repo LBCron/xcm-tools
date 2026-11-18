@@ -407,4 +407,43 @@ describe('handleExecuteTransfer', () => {
       })
     )
   })
+
+  it('should throw AmountTooLowError when feeAsset equals transferred asset and amount <= originFee + reserveFee', async () => {
+    const input = {
+      ...mockInput,
+      sender: '0xvalid',
+      assetInfo: { ...mockInput.assetInfo, amount: 2500n },
+      feeAssetInfo: { symbol: 'DOT', decimals: 10 },
+      feeCurrency: { symbol: 'DOT' }
+    } as TPolkadotXCMTransferOptions<unknown, unknown, unknown>
+
+    vi.mocked(isAssetEqual).mockReturnValue(true)
+    vi.mocked(createDirectExecuteXcm).mockResolvedValue(mockXcm)
+    vi.mocked(createExecuteCall).mockReturnValue('mockCall' as unknown as TSerializedExtrinsics)
+    vi.spyOn(mockApi, 'deserializeExtrinsics').mockReturnValue('mockTx')
+
+    // originFee = 1000 padded by 40% = 1400; reserveFee = 1000 padded by 40% = 1400
+    // amount (2500) > reserveFee (1400), but amount (2500) <= originFee + reserveFee (2800)
+    const dryRunResult = {
+      origin: { success: true, fee: 1000n },
+      hops: [{ chain: 'IntermediateChain', result: { success: true, fee: 1000n } }]
+    } as unknown as TDryRunResult
+    vi.mocked(dryRunInternal).mockResolvedValue(dryRunResult)
+
+    await expect(handleExecuteTransfer(input)).rejects.toThrow(AmountTooLowError)
+  })
+
+  it('should disconnect destApi in finally block when resolveEdDeposit throws', async () => {
+    const input = {
+      ...mockInput,
+      sender: '0xvalid',
+      assetInfo: { ...mockInput.assetInfo, amount: 10000n }
+    }
+
+    const disconnectSpy = vi.spyOn(mockApi, 'disconnect')
+    vi.mocked(resolveEdDeposit).mockRejectedValueOnce(new Error('ED resolution error'))
+
+    await expect(handleExecuteTransfer(input)).rejects.toThrow('ED resolution error')
+    expect(disconnectSpy).toHaveBeenCalledTimes(1)
+  })
 })
